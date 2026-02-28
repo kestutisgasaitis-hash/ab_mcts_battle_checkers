@@ -11,6 +11,6 @@ parameters
 ab - depth and mcts - iterations.
 Current depth 8 and iterations 2000,these numbers are too big in my 
 humble opinion.
-Good luck.
+
 
    
