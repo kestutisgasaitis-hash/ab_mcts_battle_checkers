@@ -7,8 +7,9 @@ from dataclasses import dataclass
 
 # --- KONFIGŪRACIJA ---
 GAME_MODE = "BATTLE"  # "HUMAN_VS_MCTS" arba "BATTLE"
-MCTS_ITERATIONS = 2000
-AB_DEPTH = 8
+MCTS_ITERATIONS = 1000
+
+AB_DEPTH = 7
 WINDOW_WIDTH = 840  # 640 (lenta) + 200 (panelė)
 WINDOW_HEIGHT = 640
 # ---------------------
@@ -64,6 +65,7 @@ def bit(sq: int) -> int: return 1 << sq
 
 def to_notation(sq: int) -> int:
     return 32 - sq
+
 
 @dataclass
 class Move:
@@ -200,7 +202,7 @@ class Position:
     def _generate_captures(self) -> List[Move]:
         opp, occ, captures = self.opp_men() | self.opp_kings(), self.occupied(), []
         
-def recurse(s_sq, c_sq, is_k, c_occ, c_opp, path, caps):
+        def recurse(s_sq, c_sq, is_k, c_occ, c_opp, path, caps):
             res = []
             # Taisyklė: Paprastos šaškės kerta tik į priekį, Karaliai - visur
             if is_k:
@@ -265,38 +267,20 @@ def recurse(s_sq, c_sq, is_k, c_occ, c_opp, path, caps):
 class AlphaBetaPlayer:
     def __init__(self, depth=6):
         self.depth = depth
-        self.nodes_visited = 0
-
     def search(self, position):
-        self.nodes_visited = 0
-        best_move = None
-        alpha = -float('inf')
-        beta = float('inf')
-        
         moves = position.generate_moves()
-        if not moves: return None
-        
-        # Rūšiuojame ėjimus (kirtimai pirma), kad Alpha-Beta būtų greitesnis
-        moves.sort(key=lambda m: m.is_capture(), reverse=True)
-        
-        val, move = self._minimax(position, self.depth, alpha, beta, position.side == WHITE)
+        if not moves: return None, 0
+        val, move = self._minimax(position, self.depth, -float('inf'), float('inf'), position.side == WHITE)
         return move, val
-
     def _minimax(self, pos, depth, alpha, beta, maximizing):
-        self.nodes_visited += 1
-        if depth == 0 or pos.is_game_over():
-            return pos.evaluate(), None
-            
+        if depth == 0 or pos.is_game_over(): return pos.evaluate(), None
         moves = pos.generate_moves()
         best_move = moves[0]
-        
         if maximizing:
             max_eval = -float('inf')
             for move in moves:
                 eval, _ = self._minimax(pos.make_move(move), depth - 1, alpha, beta, False)
-                if eval > max_eval:
-                    max_eval = eval
-                    best_move = move
+                if eval > max_eval: max_eval, best_move = eval, move
                 alpha = max(alpha, eval)
                 if beta <= alpha: break
             return max_eval, best_move
@@ -304,14 +288,12 @@ class AlphaBetaPlayer:
             min_eval = float('inf')
             for move in moves:
                 eval, _ = self._minimax(pos.make_move(move), depth - 1, alpha, beta, True)
-                if eval < min_eval:
-                    min_eval = eval
-                    best_move = move
+                if eval < min_eval: min_eval, best_move = eval, move
                 beta = min(beta, eval)
                 if beta <= alpha: break
             return min_eval, best_move
 
-# --- MCTS VARIKLIS (Su jūsų trupmeniniais krepšiniais) ---
+# --- MCTS VARIKLIS (Su jūsų trupmeniniais krepšeliais) ---
 class MonteCarloTreeSearchNode:
     def __init__(self, state, parent=None, action=None):
         self.state = state
@@ -325,19 +307,25 @@ class MonteCarloTreeSearchNode:
 
     def is_fully_expanded(self): return len(self.untried) == 0
 
-    def best_child(self, c=0.7):
+    def best_child(self, c = 0.7 ):
+        unvisited = [child for child in self.children if child.n_visits == 0]
+        if unvisited:
+            return random.choice(unvisited)  # Random iš nevizituotų
+    
         best_score = -float('inf')
-        best_child = None
+        best_child = self.children[0]
         for child in self.children:
-            if child.n_visits == 0: return child
             win_rate = (child.results[WHITE] if self.state.side == WHITE else child.results[BLACK]) / child.n_visits
             exploration = c * math.sqrt(math.log(self.n_visits) / child.n_visits)
             score = win_rate + exploration + (random.random() * 1e-6)
+        
             if score > best_score:
                 best_score = score
                 best_child = child
+    
         return best_child
 
+   
     def expand(self):
         action = self.untried.pop()
         next_state = self.state.make_move(action)
@@ -345,21 +333,37 @@ class MonteCarloTreeSearchNode:
         self.children.append(child)
         return child
 
+
     def rollout(self):
         curr = self.state
-        for _ in range(55):
-            if curr.is_game_over(): break
+        rollout_depth = random.randint(45, 55)
+    
+        for _ in range(rollout_depth):
             moves = curr.generate_moves()
-            curr = curr.make_move(random.choice(moves))
-        
-        if curr.is_game_over():
-            res = curr.game_result()
-            return float(res)
+            if not moves:
+                return 1.0 if curr.side == BLACK else -1.0
             
+            if curr.moves_without_capture >= 18:
+                return 0.0
+            
+            # --- PROMOTION BIAS PRADŽIA ---
+            # Išfiltruojame ėjimus, kurie veda į karalių
+            promotions = [m for m in moves if m.promote]
+        
+            if promotions and random.random() < 0.8: # 80% tikimybė rinktis promotion
+                selected_move = random.choice(promotions)
+            else:
+                selected_move = random.choice(moves)
+            # --- PROMOTION BIAS PABAIGA ---
+            
+            curr = curr.make_move(selected_move)
+    
+        # Euristinis vertinimas pabaigoje
         score = curr.evaluate()
-        k = 0.4 # Jūsų parinktas optimalus k
+        k = 0.4
         prob_white = 1 / (1 + math.exp(-k * score))
         return 2.0 * prob_white - 1.0
+
 
     def backpropagate(self, res):
         self.n_visits += 1
@@ -372,6 +376,9 @@ class MonteCarloTreeSearchNode:
         else:
             self.results[DRAW] += 1.0
         if self.parent: self.parent.backpropagate(res)
+
+
+
 
 def mcts_search(root_state, iterations=1000):
     root = MonteCarloTreeSearchNode(root_state)
@@ -396,6 +403,13 @@ def mcts_search(root_state, iterations=1000):
     draws = root.results[DRAW]
     cur_success = w_success if root_state.side == WHITE else b_success
     stats.win_rate = (cur_success + 0.5 * draws) / root.n_visits
+    
+    
+    
+    print(f"DEBUG: root.n_visits={root.n_visits}, "
+          f"WHITE={root.results[WHITE]:.1f}, "
+          f"BLACK={root.results[BLACK]:.1f}, "
+          f"DRAW={root.results[DRAW]:.1f}")
     return stats.best_move, stats
 
 # --- GUI IR BATTLE LOGIKA ---
@@ -477,9 +491,10 @@ class CheckersGUI:
         surf = self.large_font.render(text, True, color) if bold else self.font.render(text, True, color)
         self.screen.blit(surf, (x, y))
 
+
     def run_battle(self):
-        if self.pos.is_game_over() or self.ai_thinking:
-            return
+        if self.pos.is_game_over_final() or getattr(self,'ai_thinking',False):return
+ 
 
         self.ai_thinking = True
         self.draw() # Atnaujiname ekraną prieš pradedant skaičiuoti
@@ -532,6 +547,7 @@ def main():
         clock.tick(30) # Ribojame FPS, kad procesorius nekaistų be reikalo
         
     pygame.quit()
+
 
 
 if __name__ == "__main__":
