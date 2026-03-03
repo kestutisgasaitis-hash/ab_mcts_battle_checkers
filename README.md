@@ -9,8 +9,7 @@ i.e. computer "thinks" 1000 times.
 2.Designed to watch mcts vs alpha-beta battle, there are adjustable
 parameters
 ab - depth and mcts - iterations.
-Current depth 8 and iterations 2000,these numbers are too big in my 
-humble opinion.
+Current depth 7 and iterations 1000.
 
 
    
