@@ -2,7 +2,7 @@
 """
 Checkers game with Pygame GUI and MCTS AI.
 Rules: English Draughts (Men capture forward only, Kings capture both ways).
-Fixed: Proper draw evaluation for 1K vs 1K positions.
+
 """
 
 from dataclasses import dataclass
@@ -48,9 +48,6 @@ for sq in range(32):
     WHITE_PAWN_WEIGHTS[sq] = 1.0 + (7 - r) * 0.18
     # Juodieji: r=0 (0.0 bonusas), r=7 (0.7 bonusas)
     BLACK_PAWN_WEIGHTS[sq] = 1.0 + r * 0.18
-
-    
-    
     
 
 # Kaimyninių langelių masyvai
@@ -252,10 +249,6 @@ class Position:
         # Otherwise the side with no moves loses
         return -1 if self.side == WHITE else 1
 
-
-
-
-
 # --- MCTS MAZGAS SU TRUPMENINIAIS KREPŠELIAIS ---
 
 class MonteCarloTreeSearchNode:
@@ -276,7 +269,7 @@ class MonteCarloTreeSearchNode:
     def is_fully_expanded(self):
         return len(self.untried) == 0
 
-    def best_child(self, c=1.2):
+    def best_child(self, c=0.7):
         """
         Parenka geriausią vaiką pagal UCB1.
         Naudoja trupmeninę statistiką iš krepšelių.
@@ -309,30 +302,33 @@ class MonteCarloTreeSearchNode:
         return child_node
 
     def rollout(self):
-        """
-        Simuliacija su euristiniu vertinimu ir sigmoid transformacija.
-        """
         curr = self.state
-        # Simuliuojame iki 50 ėjimų
-        for _ in range(50):
-            if curr.is_game_over():
-                break
+        rollout_depth = random.randint(45, 55)
+    
+        for _ in range(rollout_depth):
             moves = curr.generate_moves()
-            curr = curr.make_move(random.choice(moves))
-        
-        # Jei žaidimas baigėsi natūraliai (pvz. kirtimų nėra arba 50-move rule)
-        if curr.is_game_over():
-            res = curr.game_result() # 1 (White), -1 (Black), 0 (Draw)
-            return float(res)
+            if not moves:
+                return 1.0 if curr.side == BLACK else -1.0
             
-        # Jei simuliacija sustojo, vertiname poziciją
-        score = curr.evaluate() # Iš BALTŲJŲ perspektyvos
+            if curr.moves_without_capture >= 18:
+                return 0.0
+            
+            # --- PROMOTION BIAS PRADŽIA ---
+            # Išfiltruojame ėjimus, kurie veda į karalių
+            promotions = [m for m in moves if m.promote]
         
-        # Sigmoid: paverčiame score į tikimybę [0, 1]
+            if promotions and random.random() < 0.8: # 80% tikimybė rinktis promotion
+                selected_move = random.choice(promotions)
+            else:
+                selected_move = random.choice(moves)
+            # --- PROMOTION BIAS PABAIGA ---
+            
+            curr = curr.make_move(selected_move)
+    
+        # Euristinis vertinimas pabaigoje
+        score = curr.evaluate()
         k = 0.4
         prob_white = 1 / (1 + math.exp(-k * score))
-        
-        # Grąžiname vertę skalėje [-1, 1]
         return 2.0 * prob_white - 1.0
 
     def backpropagate(self, res):
@@ -355,7 +351,7 @@ class MonteCarloTreeSearchNode:
             self.parent.backpropagate(res)
 
 # --- PAGRINDINĖ PAIEŠKOS FUNKCIJA ---
-def mcts_search(root_state, iterations=800):
+def mcts_search(root_state, iterations=1000):
     root = MonteCarloTreeSearchNode(root_state)
     t0 = time.time()
     
