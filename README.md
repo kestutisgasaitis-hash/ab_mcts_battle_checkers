@@ -43,6 +43,11 @@ Apparently Lua has fastest in the world interpreter , but so far language is use
 
 ![Alt text](Sigmoid.svg)
 
+In code this function is used there:
+
+k = 0.4 # adjustable parameter k, sensitiveness to material imbalance
+prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
+
 
 
    
