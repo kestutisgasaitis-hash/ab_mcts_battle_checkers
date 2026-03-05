@@ -11,7 +11,7 @@ i.e. computer "thinks" 1000 times.
 parameters
 ab - depth and mcts - iterations.
 Current depth 7 and iterations 1000.
-![Alt text](battle.jpg)
+![Alt text](Battle.jpg)
 
 
 3.Checkers game written in Lua language.To view Checkers_in_Lua.
