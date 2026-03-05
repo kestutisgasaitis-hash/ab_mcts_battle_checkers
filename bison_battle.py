@@ -267,17 +267,20 @@ class Position:
 class AlphaBetaPlayer:
     def __init__(self, depth=6):
         self.depth = depth
+        
     def search(self, position):
         moves = position.generate_moves()
         if not moves: return None, 0
         val, move = self._minimax(position, self.depth, -float('inf'), float('inf'), position.side == WHITE)
         return move, val
+        
     def _minimax(self, pos, depth, alpha, beta, maximizing):
-        if depth == 0 or pos.is_game_over(): return pos.evaluate(), None
+        if depth == 0 or pos.is_game_over(): 
+            return pos.evaluate(), None
         moves = pos.generate_moves()
         best_move = moves[0]
         if maximizing:
-            max_eval = -float('inf')
+            max_eval = -1000
             for move in moves:
                 eval, _ = self._minimax(pos.make_move(move), depth - 1, alpha, beta, False)
                 if eval > max_eval: max_eval, best_move = eval, move
@@ -285,13 +288,15 @@ class AlphaBetaPlayer:
                 if beta <= alpha: break
             return max_eval, best_move
         else:
-            min_eval = float('inf')
+            min_eval = 1000
             for move in moves:
                 eval, _ = self._minimax(pos.make_move(move), depth - 1, alpha, beta, True)
                 if eval < min_eval: min_eval, best_move = eval, move
                 beta = min(beta, eval)
                 if beta <= alpha: break
             return min_eval, best_move
+
+
 
 # --- MCTS VARIKLIS (Su jūsų trupmeniniais krepšeliais) ---
 class MonteCarloTreeSearchNode:
@@ -344,7 +349,8 @@ class MonteCarloTreeSearchNode:
                 return 1.0 if curr.side == BLACK else -1.0
             
             if curr.moves_without_capture >= 18:
-                return 0.0
+                return 0.0 # i am not sure if 0.0 is proper here, many moves without
+            # capture does not mean that position is drawn
             
             # --- PROMOTION BIAS PRADŽIA ---
             # Išfiltruojame ėjimus, kurie veda į karalių
@@ -360,8 +366,8 @@ class MonteCarloTreeSearchNode:
     
         # Euristinis vertinimas pabaigoje
         score = curr.evaluate()
-        k = 0.4
-        prob_white = 1 / (1 + math.exp(-k * score))
+        k = 0.4 # adjustable parameter k, sensitiveness to material imbalance
+        prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
         return 2.0 * prob_white - 1.0
 
 
@@ -382,6 +388,19 @@ class MonteCarloTreeSearchNode:
 
 def mcts_search(root_state, iterations=1000):
     root = MonteCarloTreeSearchNode(root_state)
+    total_moves = len(root.untried) if root.untried else 0
+    if total_moves == 1:
+        only_move = root.untried[0]
+        stats = type('Stats', (), {})()
+        stats.best_move = only_move
+        stats.time = 0
+        stats.n_visits = 1
+        stats.win_rate = 0.5
+    
+        print(f"[MCTS] Tik vienas ėjimas, grąžinama be paieškos: {only_move}")
+        return only_move, stats
+    
+
     t0 = time.time()
     for _ in range(iterations):
         node = root
@@ -417,7 +436,7 @@ class CheckersGUI:
     def __init__(self, screen):
         self.screen = screen
         self.font = pygame.font.SysFont("Arial", 18)
-        self.large_font = pygame.font.SysFont("Arial", 22, bold=True)
+        self.large_font = pygame.font.SysFont("Arial", 20, bold=True)
         self.pos = Position.starting_position()
         self.ab_player = AlphaBetaPlayer(depth=AB_DEPTH)
         self.last_stats = None
@@ -454,7 +473,7 @@ class CheckersGUI:
             pygame.draw.circle(self.screen, (255, 215, 0), center, 15)
 
     def draw_panel(self):
-        x_offset = 650
+        x_offset = 642
         y = 20
         
         # Bendra info

@@ -274,12 +274,15 @@ class MonteCarloTreeSearchNode:
         Parenka geriausią vaiką pagal UCB1.
         Naudoja trupmeninę statistiką iš krepšelių.
         """
+        unvisited = [child for child in self.children if child.n_visits == 0]
+        if unvisited:
+            return random.choice(unvisited)  # Random iš nevizituotų
+    
         best_score = -float('inf')
-        best_child = None
+        best_child = self.children[0]
+        
 
-        for child in self.children:
-            if child.n_visits == 0: return child
-            
+        for child in self.children:            
             # win_rate skaičiuojamas iš TĖVO perspektyvos
             # Kadangi krepšeliuose saugome trupmenas, tai yra vidutinė sėkmės tikimybė
             win_rate = (child.results[WHITE] if self.state.side == WHITE else child.results[BLACK]) / child.n_visits
@@ -353,6 +356,18 @@ class MonteCarloTreeSearchNode:
 # --- PAGRINDINĖ PAIEŠKOS FUNKCIJA ---
 def mcts_search(root_state, iterations=1000):
     root = MonteCarloTreeSearchNode(root_state)
+    total_moves = len(root.untried) if root.untried else 0
+    if total_moves == 1:
+        only_move = root.untried[0]
+        stats = type('Stats', (), {})()
+        stats.best_move = only_move
+        stats.time = 0
+        stats.n_visits = 1
+        stats.win_rate = 0.5
+    
+        print(f"[MCTS] Tik vienas ėjimas, grąžinama be paieškos: {only_move}")
+        return only_move, stats
+    
     t0 = time.time()
     
     for _ in range(iterations):
