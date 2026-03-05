@@ -13,7 +13,9 @@ ab - depth and mcts - iterations.
 Current depth 7 and iterations 1000.
 
 3.Checkers game written in Lua language.To view Checkers_in_Lua.
-love contents rename it to Checkers_in_Lua.zip and open with any archive viewer. In order to launch this game you should go to love2d.org and download Lua installer.
+love contents rename it to Checkers_in_Lua.zip and open with any archive viewer. In order to launch this game you should go to 
+https://love2d.org/
+and download Lua installer.
 If you extract Checkers_in_Lua.zip to some folder then you will have all source code in one place . 
 Steps:
 We have *.love file -> rename it to *.zip
