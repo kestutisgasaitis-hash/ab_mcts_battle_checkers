@@ -50,6 +50,6 @@ k = 0.4 # adjustable parameter k, sensitiveness to material imbalance
 prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
 
 4. ![Alt text](Assistant.jpg)
-Battle AB versus MCTS
+Battle AB versus MCTS ( assistant.py )
 
    
