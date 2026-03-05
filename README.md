@@ -42,6 +42,11 @@ We have zip and to unzip files , rename them.
 Apparently Lua has fastest in the world interpreter , but so far language is used for hobby projects mainly.
 ![Alt text](Lua_in_action.jpg)
 
+*.love -> rename to *.zip -> extract -> edit source -> compress to 
+*.zip -> rename to *.love ( this will be edited executable ).
+
+
+
 ![Alt text](Sigmoid.svg)
 
 In code this function is used there:
