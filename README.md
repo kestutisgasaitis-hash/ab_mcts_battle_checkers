@@ -2,6 +2,7 @@ There are files
 1. bison8_fractional.py
 2. bison_battle.py
 3. Checkers_in_Lua.love
+4. assistant.py
 
 1.Use this to play against mcts,nice pygame interface,default 
 iterations are set to 1000,
@@ -48,6 +49,7 @@ In code this function is used there:
 k = 0.4 # adjustable parameter k, sensitiveness to material imbalance
 prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
 
-
+4. ![Alt text](Assistant.jpg)
+Battle AB versus MCTS
 
    
