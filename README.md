@@ -6,7 +6,7 @@ There are files
 1.Use this to play against mcts,nice pygame interface,default 
 iterations are set to 1000,
 i.e. computer "thinks" 1000 times.
-![Alt text](bison8_fractional.jpg)
+![Alt text](Human_vs_Mcts.jpg)
 
 2.Designed to watch mcts vs alpha-beta battle, there are adjustable
 parameters
