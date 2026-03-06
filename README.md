@@ -53,6 +53,12 @@ In code this function is used there:
 
 k = 0.4 # adjustable parameter k, sensitiveness to material imbalance
 prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
+here score is evaluation of checkers position.
+if man is worth 1 , king is worth 2 , then position's evaluation is
+in interval let's say (-5,5) or in (-10,10).
+Sigmoid takes this score as argument and clamps ( squashes ) score into interval (0,1). Final position's score will be fraction between 0 and 1. 
+Having score in interval (0,1) it is easier to work with backpropagate and best_child functions. Because if one color has score , then other's ( opponent's ) score will be (1 - score).
+This fact in backpropagate and in best_child plays crucial role.
 
 4. ![Alt text](Assistant.jpg)
 Battle AB versus MCTS ( assistant.py )
