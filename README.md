@@ -68,9 +68,8 @@ Having score in interval (0,1) it is easier to work with backpropagate and best_
 This fact in backpropagate and in best_child plays crucial role.
 
 
------------------------------------------------------------------
-4. Battle AB versus MCTS ( assistant.py )
-
- ![Alt text](Assistant.jpg)
+------------------------------------------------------
+4.Battle AB versus MCTS ( assistant.py )
+![Alt text](Assistant.jpg)
 
    
