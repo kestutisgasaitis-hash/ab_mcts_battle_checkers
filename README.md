@@ -69,8 +69,8 @@ This fact in backpropagate and in best_child plays crucial role.
 
 
 -----------------------------------------------------------------
+4. Battle AB versus MCTS ( assistant.py )
 
-4. ![Alt text](Assistant.jpg)
-Battle AB versus MCTS ( assistant.py )
+ ![Alt text](Assistant.jpg)
 
    
