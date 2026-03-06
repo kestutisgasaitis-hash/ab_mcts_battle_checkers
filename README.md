@@ -46,7 +46,8 @@ Apparently Lua has fastest in the world interpreter , but so far language is use
 *.zip -> rename to *.love ( this will be edited executable ).
 
 
-
+----------------------------------------
+About mcts search logic.
 ![Alt text](Sigmoid.svg)
 
 In code this function is used there:
