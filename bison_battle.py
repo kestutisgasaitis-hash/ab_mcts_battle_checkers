@@ -7,23 +7,22 @@ from dataclasses import dataclass
 
 # --- KONFIGŪRACIJA ---
 GAME_MODE = "BATTLE"  # "HUMAN_VS_MCTS" arba "BATTLE"
-MCTS_ITERATIONS = 1000
 
-AB_DEPTH = 7
+MCTS_ITERATIONS = 1000000
+TIME_LIMIT = 2.5
+
+AB_DEPTH = 6
+
 WINDOW_WIDTH = 840  # 640 (lenta) + 200 (panelė)
 WINDOW_HEIGHT = 640
-# ---------------------
 
 WHITE = 0
 BLACK = 1
-DRAW = 2
-
 
 # Svorio masyvai paprastoms šaškėms (pažangos bonusas)
 # Baltieji juda link r=0, Juodieji link r=7
 WHITE_PAWN_WEIGHTS = [0.0] * 32
 BLACK_PAWN_WEIGHTS = [0.0] * 32
-
 
 # Lentos koordinačių susiejimas su 32 langelių indeksais
 _SQ_TO_RC = [None] * 32
@@ -47,9 +46,9 @@ def sq_to_rc(sq: int) -> Tuple[int, int]:
 for sq in range(32):
     r, _ = sq_to_rc(sq)
     # Baltieji: r=7 (0.0 bonusas), r=0 (0.7 bonusas)
-    WHITE_PAWN_WEIGHTS[sq] = 1.0 + (7 - r) * 0.18
+    WHITE_PAWN_WEIGHTS[sq] = 1.0 + (7 - r) * 0.08
     # Juodieji: r=0 (0.0 bonusas), r=7 (0.7 bonusas)
-    BLACK_PAWN_WEIGHTS[sq] = 1.0 + r * 0.18
+    BLACK_PAWN_WEIGHTS[sq] = 1.0 + r * 0.08
     
 # Kaimyninių langelių masyvai
 NW, NE, SW, SE = ([-1] * 32 for _ in range(4))
@@ -66,8 +65,7 @@ def bit(sq: int) -> int: return 1 << sq
 def to_notation(sq: int) -> int:
     return 32 - sq
 
-
-@dataclass
+@dataclass(slots=True, frozen=True)
 class Move:
     start: int
     path: List[int]
@@ -82,6 +80,14 @@ class Move:
         return f"{to_notation(self.start)}{sep}{to_notation(self.path[-1])}" + (" (K)" if self.promote else "")
 
 class Position:
+    __slots__ = (
+    'white_men',
+    'white_kings',
+    'black_men',
+    'black_kings',
+    'side',
+    'moves_without_capture'
+    )  
     def __init__(self, white_men, white_kings, black_men, black_kings, side=WHITE, moves_without_capture=0):
         self.white_men, self.white_kings = white_men, white_kings
         self.black_men, self.black_kings = black_men, black_kings
@@ -105,15 +111,14 @@ class Position:
 
     def clone(self): return Position(self.white_men, self.white_kings, self.black_men, self.black_kings, self.side, self.moves_without_capture)
 
-
-    def evaluate(self):
+    def evaluate_ab(self):
         """
         Optimizuotas vertinimas iš BALTŲJŲ perspektyvos.
         Naudoja bitboardus ir iš anksto paruoštus svorius.
         """
         score = 0.0
     
-        # 1. Materialinis svoris (Karalius = 2.5 paprastos šaškės)
+        # 1. Materialinis svoris (Karalius = 2.0 paprastos šaškės)
         # bit_count() yra labai greitas Python 3.10+
         w_pawns_bits = self.white_men & ~self.white_kings
         b_pawns_bits = self.black_men & ~self.black_kings
@@ -155,7 +160,59 @@ class Position:
 
         return score
 
+    def evaluate_mcts(self):
+        """
+        Optimizuotas vertinimas iš BALTŲJŲ perspektyvos.
+        Naudoja bitboardus ir iš anksto paruoštus svorius.
+        """
+        w_score = 0.0
+        b_score = 0.0
+    
+        # 1. Materialinis svoris (Karalius = 2.0 paprastos šaškės)
+        # bit_count() yra labai greitas Python 3.10+
+        w_pawns_bits = self.white_men & ~self.white_kings
+        b_pawns_bits = self.black_men & ~self.black_kings
+    
+        w_score += w_pawns_bits.bit_count() * 1.0
+        w_score += self.white_kings.bit_count() * 2.0
+    
+        b_score += b_pawns_bits.bit_count() * 1.0
+        b_score += self.black_kings.bit_count() * 2.0
 
+        # 2. Pozicinis bonusas už pažangą (naudojant jūsų paruoštus svorius)
+        # Einame tik per nustatytus bitus (maksimaliai 12 per pusę)
+    
+        # Baltųjų pažanga (juda link r=0)
+        temp_w = w_pawns_bits
+        while temp_w:
+            sq = (temp_w & -temp_w).bit_length() - 1
+            # Pridedame tik bonuso dalį (atėmus bazinį 1.0)
+            w_score += (WHITE_PAWN_WEIGHTS[sq] - 1.0)
+            temp_w &= temp_w - 1
+
+        # Juodųjų pažanga (juda link r=7)
+        temp_b = b_pawns_bits
+        while temp_b:
+            sq = (temp_b & -temp_b).bit_length() - 1
+            # Atimame tik bonuso dalį
+            b_score += (BLACK_PAWN_WEIGHTS[sq] - 1.0)
+            temp_b &= temp_b - 1
+
+        # 3. Saugus užnugaris (Back-rank bonusas)
+        # Baltieji saugo r=7 (bitai 28-31), Juodieji saugo r=0 (bitai 0-3)
+        # Kaukės: 0xF0000000 (r=7), 0x0000000F (r=0)
+    
+        white_back_rank = self.white_men & 0xF0000000
+        black_back_rank = self.black_men & 0x0000000F
+    
+        w_score += white_back_rank.bit_count() * 0.01
+        b_score += black_back_rank.bit_count() * 0.01
+        diff = w_score - b_score
+        THRESHOLD = 4
+        if diff >= THRESHOLD: diff = THRESHOLD
+        if diff <= -THRESHOLD: diff = -THRESHOLD
+        return diff
+    
     def make_move(self, move: Move) -> "Position":
         new_pos = self.clone()
         f, t = move.start, move.path[-1]
@@ -236,34 +293,12 @@ class Position:
         # No legal moves = game over
         if len(self.generate_moves()) == 0:
             return True
-        
         # 50-move rule: no captures or promotions = draw
-        if self.moves_without_capture >= 30:
-            return True
-        
+        if self.moves_without_capture >= 50:
+            return True 
         return False
-
-    def is_game_over_final(self): 
-        # No legal moves = game over
-        if len(self.generate_moves()) == 0:
-            return True
-        
-        # 50-move rule: no captures or promotions = draw
-        if self.moves_without_capture >= 60:
-            return True
-        
-        return False   
-                          
-    def game_result(self): 
-        # If 50-move rule triggered, it's a draw
-        if self.moves_without_capture >= 30:
-            return 0 #DRAW
-        
-        # Otherwise the side with no moves loses
-        return -1 if self.side == WHITE else 1
-
-
-# --- ALPHA-BETA VARIKLIS ---
+ 
+# --- ALPHA-BETA ENGINE ---
 class AlphaBetaPlayer:
     def __init__(self, depth=6):
         self.depth = depth
@@ -276,7 +311,7 @@ class AlphaBetaPlayer:
         
     def _minimax(self, pos, depth, alpha, beta, maximizing):
         if depth == 0 or pos.is_game_over(): 
-            return pos.evaluate(), None
+            return pos.evaluate_ab(), None
         moves = pos.generate_moves()
         best_move = moves[0]
         if maximizing:
@@ -296,17 +331,25 @@ class AlphaBetaPlayer:
                 if beta <= alpha: break
             return min_eval, best_move
 
-
-
 # --- MCTS VARIKLIS (Su jūsų trupmeniniais krepšeliais) ---
 class MonteCarloTreeSearchNode:
+    __slots__ = (
+        'state',
+        'parent',
+        'parent_action',
+        'children',
+        'n_visits', 
+        'results', 
+        'untried'
+    )
+
     def __init__(self, state, parent=None, action=None):
         self.state = state
         self.parent = parent
         self.parent_action = action
-        self.children = []
+        self.children:list[MonteCarloTreeSearchNode] = []
         self.n_visits = 0
-        self.results = {WHITE: 0.0, BLACK: 0.0, DRAW: 0.0}
+        self.results = {WHITE: 0.0, BLACK: 0.0}
         self.untried = self.state.generate_moves()
         random.shuffle(self.untried)
 
@@ -318,18 +361,17 @@ class MonteCarloTreeSearchNode:
             return random.choice(unvisited)  # Random iš nevizituotų
     
         best_score = -float('inf')
-        best_child = self.children[0]
+        best_child = None
         for child in self.children:
             win_rate = (child.results[WHITE] if self.state.side == WHITE else child.results[BLACK]) / child.n_visits
             exploration = c * math.sqrt(math.log(self.n_visits) / child.n_visits)
-            score = win_rate + exploration + (random.random() * 1e-6)
+            score = win_rate + exploration + (random.random() * (1e-12))
         
             if score > best_score:
                 best_score = score
                 best_child = child
     
         return best_child
-
    
     def expand(self):
         action = self.untried.pop()
@@ -338,55 +380,91 @@ class MonteCarloTreeSearchNode:
         self.children.append(child)
         return child
 
-
     def rollout(self):
         curr = self.state
-        rollout_depth = random.randint(45, 55)
-    
-        for _ in range(rollout_depth):
+        #rollout_depth = random.randint(46, 56)
+        k = None
+        for _ in range(40):
             moves = curr.generate_moves()
             if not moves:
-                return 1.0 if curr.side == BLACK else -1.0
-            
-            if curr.moves_without_capture >= 18:
-                return 0.0 # i am not sure if 0.0 is proper here, many moves without
-            # capture does not mean that position is drawn
-            
+                return 1.0 if curr.side == BLACK else 0.0
+             
             # --- PROMOTION BIAS PRADŽIA ---
             # Išfiltruojame ėjimus, kurie veda į karalių
             promotions = [m for m in moves if m.promote]
         
-            if promotions and random.random() < 0.8: # 80% tikimybė rinktis promotion
+            if promotions and random.random() < 0.8: # 80%
                 selected_move = random.choice(promotions)
             else:
                 selected_move = random.choice(moves)
             # --- PROMOTION BIAS PABAIGA ---
             
             curr = curr.make_move(selected_move)
-    
-        # Euristinis vertinimas pabaigoje
-        score = curr.evaluate()
-        k = 0.4 # adjustable parameter k, sensitiveness to material imbalance
-        prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
-        return 2.0 * prob_white - 1.0
+            if curr.moves_without_capture >= 14:
+                score = curr.evaluate_mcts()
+                k = 0.4
+                prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid
+                return prob_white
+                #return 0.5  i am not sure if 0.5 is proper here, many moves without
+                # capture does not mean that position is drawn
+                                                           
+        score = curr.evaluate_mcts()  # visada White pov, ribotas į [-4, +4]
 
+        # Material imbalance (su tuo pačiu svorių modeliu kaip evaluate_mcts)
+        w_pawns = (curr.white_men & ~curr.white_kings).bit_count()
+        w_kings = curr.white_kings.bit_count()
+        b_pawns = (curr.black_men & ~curr.black_kings).bit_count()
+        b_kings = curr.black_kings.bit_count()
+
+        imb = (w_pawns * 1.0 + w_kings * 2.0) - (b_pawns * 1.0 + b_kings * 2.0)
+
+        # normalizacija (parink reikšmę pagal tipinę max imbalance)
+        imb_norm = max(-1.0, min(1.0, imb / 8.0))
+
+        # Game phase (endgame factor) pagal likusių figūrų kiekį
+        w_pieces = (curr.white_men | curr.white_kings).bit_count()
+        b_pieces = (curr.black_men | curr.black_kings).bit_count()
+        pieces_left = w_pieces + b_pieces
+
+        # Kadangi šaškėse viršutinė riba priklauso nuo taisyklių/board dydžio,
+        # paprastai priimtina paimti praktines ribas (pvz. 12..24).
+        # Jei nesi tikras, gali tiesiog spėjamai ir vėliau kalibruoti.
+        max_pieces = 24
+        min_pieces = 8
+
+        t = max(0.0, min(1.0, (pieces_left - min_pieces) / (max_pieces - min_pieces)))
+        endgame_factor = 1.0 - t  # 0 opening/middlegame, 1 endgame
+
+        k0 = 0.5
+        
+        alpha = 0.3   # material clarity
+        gamma = 0.2   # endgame stability
+
+        k = k0 + alpha * abs(imb_norm) + gamma * endgame_factor
+        # pasirūpinam, kad k nebūtų per mažas/ per didelis
+        k = max(0.5, min(1.1, k))
+
+        prob_white = 1.0 / (1.0 + math.exp(-k * score))
+        return prob_white
+                                                                                                                 
+        # k = max(0.5, 0.9 - 0.02 * curr.moves_without_capture)
+        # Euristinis vertinimas pabaigoje
+        # score = curr.evaluate_mcts()
+
+        # k = 0.4 - 0.6 - 0.8 
+        # adjustable parameter k, sensitiveness to material imbalance
+        #prob_white = 1 / (1 + math.exp(-k * score)) # Sigmoid       
+        #return prob_white
 
     def backpropagate(self, res):
         self.n_visits += 1
-        if res > 0:
-            self.results[WHITE] += res
-            self.results[BLACK] += (1.0 - res)
-        elif res < 0:
-            self.results[BLACK] += abs(res)
-            self.results[WHITE] += (1.0 - abs(res))
-        else:
-            self.results[DRAW] += 1.0
+        self.results[WHITE] += res
+        self.results[BLACK] += ( 1.0 - res )
+      
         if self.parent: self.parent.backpropagate(res)
 
-
-
-
-def mcts_search(root_state, iterations=1000):
+# ------- MAIN SEARCH ------------------------------------
+def mcts_search(root_state, iterations = 0, time_budget = 0.0):
     root = MonteCarloTreeSearchNode(root_state)
     total_moves = len(root.untried) if root.untried else 0
     if total_moves == 1:
@@ -397,41 +475,60 @@ def mcts_search(root_state, iterations=1000):
         stats.n_visits = 1
         stats.win_rate = 0.5
     
-        print(f"[MCTS] Tik vienas ėjimas, grąžinama be paieškos: {only_move}")
+        print(f"[MCTS] Only one move, return without any search: {only_move}")
         return only_move, stats
-    
 
+    w_pawns_bits = root_state.white_men & ~root_state.white_kings
+    b_pawns_bits = root_state.black_men & ~root_state.black_kings
+    
+    w_score = w_pawns_bits.bit_count() * 1.0 + root_state.white_kings.bit_count() * 2.0
+    
+    b_score = b_pawns_bits.bit_count() * 1.0 + root_state.black_kings.bit_count() * 2.0    
+     
+    m = w_score + b_score
+    c_max = 1.3
+    c_min = 0.2 # 0.16 # 0.12
+    M =  24 # 36
+    c_val = c_min + (c_max - c_min) * m / M
+    
     t0 = time.time()
+    iters = 0
     for _ in range(iterations):
+        if ((iters & 63 == 0) and time.time() - t0 > time_budget):
+        	break
+        	
         node = root
         while node.is_fully_expanded() and node.children:
-            node = node.best_child()
+            node = node.best_child(c_val)
+                        
         if not node.is_fully_expanded():
             node = node.expand()
+                        
         result = node.rollout()
+        
         node.backpropagate(result)
+        iters += 1
     
     if not root.children: return None, None
     best = max(root.children, key=lambda c: c.n_visits)
     stats = type('Stats', (), {})()
     stats.best_move = best.parent_action
     stats.time = time.time() - t0
+    elapsed = stats.time
     stats.n_visits = root.n_visits
     w_success = root.results[WHITE]
     b_success = root.results[BLACK]
-    draws = root.results[DRAW]
     cur_success = w_success if root_state.side == WHITE else b_success
-    stats.win_rate = (cur_success + 0.5 * draws) / root.n_visits
+    stats.win_rate = (cur_success ) / root.n_visits
     
+    rps = int(iters/elapsed)
+    print("RPS :   " , rps )   
+    print(f"DEBUG: root.n_visits={root.n_visits}, "f"WHITE={root.results[WHITE]:.1f}, " f"BLACK={root.results[BLACK]:.1f} " )
     
-    
-    print(f"DEBUG: root.n_visits={root.n_visits}, "
-          f"WHITE={root.results[WHITE]:.1f}, "
-          f"BLACK={root.results[BLACK]:.1f}, "
-          f"DRAW={root.results[DRAW]:.1f}")
     return stats.best_move, stats
 
 # --- GUI IR BATTLE LOGIKA ---
+
 class CheckersGUI:
     def __init__(self, screen):
         self.screen = screen
@@ -512,9 +609,9 @@ class CheckersGUI:
 
 
     def run_battle(self):
-        if self.pos.is_game_over_final() or getattr(self,'ai_thinking',False):return
+        if self.pos.is_game_over() or getattr(self,'ai_thinking',False):
+        	return
  
-
         self.ai_thinking = True
         self.draw() # Atnaujiname ekraną prieš pradedant skaičiuoti
         
@@ -522,7 +619,7 @@ class CheckersGUI:
         
         if self.pos.side == WHITE:
             # MCTS ėjimas
-            move, stats = mcts_search(self.pos, iterations=MCTS_ITERATIONS)
+            move, stats = mcts_search(self.pos, iterations=MCTS_ITERATIONS, time_budget = TIME_LIMIT)
             self.last_stats = stats
             if move:
                 print(f"WHITE (MCTS) move: {to_notation(move.start)}-{to_notation(move.path[-1])} | WinRate: {stats.win_rate:.2%}")
@@ -541,9 +638,11 @@ class CheckersGUI:
         self.ai_thinking = False
         self.draw()
 
-
 def main():
     pygame.init()
+    pygame.display.init()
+    pygame.font.init()
+    font = pygame.font.SysFont(None, 70)
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption("MCTS vs Alpha-Beta Battle")
     gui = CheckersGUI(screen)
@@ -558,16 +657,21 @@ def main():
                 running = False
         
         # Battle režimas: AI žaidžia automatiškai
-        if GAME_MODE == "BATTLE" and not gui.pos.is_game_over_final() and not gui.ai_thinking:
+        if gui.pos.is_game_over():
+            text = font.render(" GAME OVER ", True, (255, 0, 0))
+            screen.blit(text, (160, 280))
+            pygame.display.flip()
+            pygame.time.delay(10000)
+            pygame.quit()
+        if GAME_MODE == "BATTLE" and not gui.pos.is_game_over() and not gui.ai_thinking:
             gui.run_battle()
-            pygame.time.delay(200) # Nedidelė pauzė tarp ėjimų vizualizacijai
+            pygame.time.delay(100) # Nedidelė pauzė tarp ėjimų vizualizacijai
         
         gui.draw()
         clock.tick(30) # Ribojame FPS, kad procesorius nekaistų be reikalo
         
     pygame.quit()
 
-
-
 if __name__ == "__main__":
     main()
+    
